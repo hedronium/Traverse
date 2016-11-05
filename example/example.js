@@ -7,58 +7,61 @@ var traverse = new Traverse();
 
 var index = 'http://localhost:8060/index.htm';
 
-traverse.url(index, 1, 'index')
-.perMinute(60)
-.delay(500)
-.concurrent(3);
+traverse.push({
+	url: index,
+	tag: 'index'
+}).perMinute(60).delay(200).concurrent(3);
 
-traverse.on('scrape', function ($, traverse, entry) {
+traverse.on('scrape', ($) => {
+	console.log(`Scraped ${$('title').html()}.`);
+});
 
-	if (entry.data === 'index') {
+traverse.on('scrape:index', function ($, traverse) {
+	$('.pages-list a').each((i, anchor) => {
+		anchor = $(anchor);
 
-		$('.pagination > a').each((i, anchor) => {
-			anchor = $(anchor);
+		let href = anchor.attr('href');
 
-			if (anchor.html() != 'next') {
-				return;
-			}
+		if (href) {
+			traverse.push({
+				url: url.resolve(index, href)
+			});
+		}
+	});
+	
+	$('.pagination > a').each((i, anchor) => {
+		anchor = $(anchor);
 
-			let href = anchor.attr('href');
+		if (anchor.html() != 'next') {
+			return;
+		}
 
-			if (href) {
-				traverse.url(
-					url.resolve(index, href), 1, 'index'
-				);
-			}
-		});
+		let href = anchor.attr('href');
 
-		$('.pages-list a').each((i, anchor) => {
-			anchor = $(anchor);
+		if (href) {
+			traverse.push({
+				url: url.resolve(index, href),
+				priority: 1,
+				tag: 'index'
+			});
+		}
+	});
+});
 
-			let href = anchor.attr('href');
+traverse.on('scrape:default', ($, traverse) => {
+	$('.num-list > li').each((i, item) => {
+		list.push(parseInt($(item).html()));
+	});
+});
 
-			if (href) {
-				traverse.url(
-					url.resolve(index, href)
-				);
-			}
-		});
-
-	} else {
-		$('.num-list > li').each((i, item) => {
-			list.push(parseInt($(item).html()));
-		});
-	}
-
-	traverse.pause();
+traverse.on('ended', (data) => {
+	console.log(`------------------------`);
+	console.log(`Scraped ${data.finished} pages.`);
+	console.log(`------------------------`);
+	console.log('Scraped Numbers: ');
+	console.log(...list.sort((a, b) => {
+		return a-b;
+	}));
 });
 
 traverse.start();
-
-traverse.on('done', () => {
-	console.log('DONE');
-});
-
-// setInterval(() => {
-// 	console.log(traverse.__requests.length);
-// }, 1000);

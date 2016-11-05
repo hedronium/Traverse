@@ -31,8 +31,6 @@ class Traverse extends EventEmitter {
 		};
 
 		this.__scraper = function (options, entry, success, failiure, finish) {
-			console.log(entry);
-
 			let req = Request(options).then(function (data) {
 				let usable = Cheerio.load(data);
 				success(usable, data, options, entry);
@@ -45,10 +43,6 @@ class Traverse extends EventEmitter {
 			return req;
 		};
 
-		this.__fail = function (error, options, entry) {
-
-		};
-
 		this.state = {};
 
 		this.__queue = new PriorityQueue({
@@ -59,12 +53,17 @@ class Traverse extends EventEmitter {
 		});
 	}
 
-	url(url, priority = 0, data = {}) {
-		if (typeof url !== 'string') {
+	push(entry) {
+		if (typeof entry.url !== 'string') {
 			throw new Error('URL must be a string');
 		}
 
-		this.__queue.queue({url, priority: priority*1, data});
+		this.__queue.queue({
+			url: entry.url,
+			priority: entry.priority || 0,
+			data: entry.data || {},
+			tag: entry.tag || false
+		});
 
 		if (this.__start_time !== false) {
 			this.__startRequest();
@@ -152,12 +151,22 @@ class Traverse extends EventEmitter {
 		this.__currently_running += 1;
 		this.__requests_this_minute += 1;
 
+		this.emit('request', options, entry);
+
 		let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
 
-			this.emit('scrape', usable, this, entry, options, this.state);
+			this.emit('scrape', usable, this, entry, options);
+
+			let tag = entry.tag;
+			if (!tag) {
+				tag = 'default';
+			}
+
+			this.emit(`scrape:${tag}`, usable, this, entry, options);
 
 		}, (error, options, entry) => { // Fail
 
+			this.emit('fail', error, entry, options);
 			this.__fails += 1;
 
 		}, (options, entry) => { // Finish
@@ -171,7 +180,10 @@ class Traverse extends EventEmitter {
 			this.__startRequest();
 
 			if (this.__currently_running == 0 && this.__queue.length == 0 && (new Date).getTime() > this.__scheduled_till) {
-				this.emit('done');
+				this.emit('ended', {
+					finished: this.__finished,
+					failed: this.__fails
+				});
 			}
 		});
 
