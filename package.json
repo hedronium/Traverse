@@ -1,0 +1,23 @@
+{
+  "name": "traverse",
+  "version": "1.0.0",
+  "description": "Use Node and jQuery to crawl webpages.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "crawler",
+    "scraper",
+    "web",
+    "spider"
+  ],
+  "author": "Omran Jamal <o.jamal97@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "cheerio": "^0.22.0",
+    "js-priority-queue": "^0.1.5",
+    "request": "^2.78.0",
+    "request-promise": "^4.1.1"
+  }
+}
