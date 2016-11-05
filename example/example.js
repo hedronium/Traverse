@@ -6,52 +6,59 @@ var list = [];
 var traverse = new Traverse();
 
 var index = 'http://localhost:8060/index.htm';
-traverse.url(index, 1, 'index');
-traverse.perMinute(60);
-traverse.delay(500);
-traverse.concurrent(1);
-traverse.processor(function ($, traverse, entry) {
 
-  if (entry.data === 'index') {
+traverse.url(index, 1, 'index')
+.perMinute(60)
+.delay(500)
+.concurrent(3);
 
-    $('.pagination > a').each((i, anchor) => {
-      anchor = $(anchor);
+traverse.on('scrape', function ($, traverse, entry) {
 
-      if (anchor.html() != 'next') {
-        return;
-      }
+	if (entry.data === 'index') {
 
-      let href = anchor.attr('href');
+		$('.pagination > a').each((i, anchor) => {
+			anchor = $(anchor);
 
-      if (href) {
-        traverse.url(
-          url.resolve(index, href), 1, 'index'
-        );
-      }
-    });
+			if (anchor.html() != 'next') {
+				return;
+			}
 
-    $('.pages-list a').each((i, anchor) => {
-      anchor = $(anchor);
+			let href = anchor.attr('href');
 
-      let href = anchor.attr('href');
+			if (href) {
+				traverse.url(
+					url.resolve(index, href), 1, 'index'
+				);
+			}
+		});
 
-      if (href) {
-        traverse.url(
-          url.resolve(index, href)
-        );
-      }
-    });
+		$('.pages-list a').each((i, anchor) => {
+			anchor = $(anchor);
 
-  } else {
-    $('.num-list > li').each((i, item) => {
-      list.push(parseInt($(item).html()));
-    });
-  }
+			let href = anchor.attr('href');
+
+			if (href) {
+				traverse.url(
+					url.resolve(index, href)
+				);
+			}
+		});
+
+	} else {
+		$('.num-list > li').each((i, item) => {
+			list.push(parseInt($(item).html()));
+		});
+	}
+
+	traverse.pause();
 });
 
 traverse.start();
 
+traverse.on('done', () => {
+	console.log('DONE');
+});
 
-setTimeout(() => {
-  console.log(list.sort((a,b) => { return a-b }));
-}, 8000);
+// setInterval(() => {
+// 	console.log(traverse.__requests.length);
+// }, 1000);

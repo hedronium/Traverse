@@ -1,176 +1,209 @@
-var PriorityQueue = require('js-priority-queue');
-var Request = require('request-promise');
-var Cheerio = require('cheerio');
+const EventEmitter = require('events');
+const PriorityQueue = require('js-priority-queue');
+const Request = require('request-promise');
+const Cheerio = require('cheerio');
 
-class Traverse {
-  constructor() {
-    this.__queue = null;
-    this.__rpm = 60;
-    this.__concurrent = 2;
-    this.__delay = 0;
+class Traverse extends EventEmitter {
+	constructor() {
+		super();
 
-    this.__currently_running = 0;
-    this.__finished = 0;
+		this.__queue = null;
+		this.__rpm = 60;
+		this.__concurrent = 2;
+		this.__delay = 0;
 
-    this.__requests_this_minute = 0;
-    this.__last_minute = 0;
-    this.__delayed_till = 0;
-    this.__fails = 0;
-    this.__start_time = false;
+		this.__currently_running = 0;
+		this.__finished = 0;
 
-    this.__processor = function ($, traverse, entry, options, state) {
-      throw new Error(`Must define a processor.`);
-    };
+		this.__requests_this_minute = 0;
+		this.__last_minute = 0;
+		this.__delayed_till = 0;
+		this.__fails = 0;
+		this.__start_time = false;
+		this.__paused = false;
+		this.__requests = [];
+		this.__scheduled_till = 0;
 
-    this.__middleware = function (entry, state) {
-      return {
-        url: entry.url
-      }
-    };
+		this.__middleware = function (entry, state) {
+			return {
+				url: entry.url
+			}
+		};
 
-    this.__scraper = function (options, entry, success, failiure, finish) {
-      console.log(entry);
+		this.__scraper = function (options, entry, success, failiure, finish) {
+			console.log(entry);
 
-      Request(options).then(function (data) {
-        let usable = Cheerio.load(data);
-        success(usable, data, options, entry);
-      }).catch(function(error) {
-        failiure(error, options, entry);
-      }).finally(function () {
-        finish(options, entry);
-      });
-    };
+			let req = Request(options).then(function (data) {
+				let usable = Cheerio.load(data);
+				success(usable, data, options, entry);
+			}).catch(function(error) {
+				failiure(error, options, entry);
+			}).finally(function () {
+				finish(options, entry);
+			});
 
-    this.__fail = function (error, options, entry) {
+			return req;
+		};
 
-    };
+		this.__fail = function (error, options, entry) {
 
-    this.state = {};
+		};
 
-    this.__queue = new PriorityQueue({
-      strategy: PriorityQueue.BinaryHeapStrategy,
-      comparator: function(a, b) {
-        return b.priority - a.priority;
-      }
-    });
-  }
+		this.state = {};
 
-  url(url, priority = 0, data = {}) {
-    if (typeof url !== 'string') {
-      throw new Error('URL must be a string');
-    }
+		this.__queue = new PriorityQueue({
+			strategy: PriorityQueue.BinaryHeapStrategy,
+			comparator: function(a, b) {
+				return b.priority - a.priority;
+			}
+		});
+	}
 
-    this.__queue.queue({url, priority: priority*1, data});
+	url(url, priority = 0, data = {}) {
+		if (typeof url !== 'string') {
+			throw new Error('URL must be a string');
+		}
 
-    if (this.__start_time !== false) {
-      this.__startRequest();
-    }
-  }
+		this.__queue.queue({url, priority: priority*1, data});
 
-  state(obj) {
-    this.state = obj;
-  }
+		if (this.__start_time !== false) {
+			this.__startRequest();
+		}
 
-  perMinute(number) {
-    if (number*1 <= 0) {
-      throw new Error(`Requests per minute must be a positive numeric value.`);
-    }
+		return this;
+	}
 
-    this.__rpm = number*1;
-  }
+	state(obj) {
+		this.state = obj;
 
-  concurrent(number) {
-    if (number*1 <= 0) {
-      throw new Error(`Requests per minute must be a positive numeric value.`);
-    }
+		return this;
+	}
 
-    this.__concurrent = number*1;
-  }
+	perMinute(number) {
+		if (number*1 <= 0) {
+			throw new Error(`Requests per minute must be a positive numeric value.`);
+		}
 
-  delay(milisecs) {
-    this.__delay = milisecs*1;
-  }
+		this.__rpm = number*1;
 
-  middleware(func) {
-    if (!(func instanceof Function)) {
-      throw new Error(`Middleware must be a function.`);
-    }
+		return this;
+	}
 
-    this.__middleware = func;
-  }
+	concurrent(number) {
+		if (number*1 <= 0) {
+			throw new Error(`Requests per minute must be a positive numeric value.`);
+		}
 
-  processor(func) {
-    if (!(func instanceof Function)) {
-      throw new Error(`Processor must be a function.`);
-    }
+		this.__concurrent = number*1;
 
-    this.__processor = func;
-  }
+		return this;
+	}
 
-  __startRequest() {
-    if (!this.__queue.length) {
-      return;
-    }
+	delay(milisecs) {
+		this.__delay = milisecs*1;
 
-    if (this.__currently_running >= this.__concurrent) {
-      return;
-    }
+		return this;
+	}
 
-    let now = (new Date).getTime();
-    let milis = now - this.__start_time;
-    let mins = milis/60000;
-    let this_min = Math.floor(mins);
+	middleware(func) {
+		if (!(func instanceof Function)) {
+			throw new Error(`Middleware must be a function.`);
+		}
 
-    if (this_min === this.__last_minute) {
-      if (this.__requests_this_minute >= this.__rpm) {
-        setTimeout(() => {
-          this.__startRequest();
-        }, 60000 - milis%60000 + 20);
+		this.__middleware = func;
 
-        return;
-      }
-    } else {
-      this.__last_minute = this_min;
-      this.__requests_this_minute = 0;
-    }
+		return this;
+	}
 
-    if (now < this.__delayed_till) {
-      return;
-    }
+	__startRequest() {
+		if (!this.__queue.length || this.__paused) {
+			return;
+		}
 
-    let entry = this.__queue.dequeue();
-    let options = this.__middleware(entry, this.state);
+		if (this.__currently_running >= this.__concurrent) {
+			return;
+		}
 
-    this.__currently_running += 1;
-    this.__requests_this_minute += 1;
+		let now = (new Date).getTime();
+		let milis = now - this.__start_time;
+		let mins = milis/60000;
+		let this_min = Math.floor(mins);
 
-    this.__scraper(options, entry, (usable, data, options, entry) => { // Success
+		if (this_min === this.__last_minute) {
+			if (this.__requests_this_minute >= this.__rpm) {
+				setTimeout(() => {
+					this.__startRequest();
+				}, 60000 - milis%60000 + 20);
 
-      this.__processor(usable, this, entry, options, this.state);
+				return;
+			}
+		} else {
+			this.__last_minute = this_min;
+			this.__requests_this_minute = 0;
+		}
 
-    }, (error, options, entry) => { // Fail
+		if (now < this.__delayed_till) {
+			return;
+		}
 
-      this.__fails += 1;
+		let entry = this.__queue.dequeue();
+		let options = this.__middleware(entry, this.state);
 
-    }, (options, entry) => { // Finish
+		this.__currently_running += 1;
+		this.__requests_this_minute += 1;
 
-      this.__currently_running -= 1;
-      this.__finished += 1;
-      this.__startRequest();
+		let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
 
-    });
+			this.emit('scrape', usable, this, entry, options, this.state);
 
-    this.__delayed_till = now + this.__delay;
+		}, (error, options, entry) => { // Fail
 
-    setTimeout(() => {
-      this.__startRequest();
-    }, this.__delay);
-  }
+			this.__fails += 1;
 
-  start() {
-    this.__start_time = (new Date).getTime();
-    this.__startRequest();
-  }
+		}, (options, entry) => { // Finish
+
+			this.__requests = this.__requests.filter((r) => {
+				return r !== req;
+			});
+
+			this.__currently_running -= 1;
+			this.__finished += 1;
+			this.__startRequest();
+
+			if (this.__currently_running == 0 && this.__queue.length == 0 && (new Date).getTime() > this.__scheduled_till) {
+				this.emit('done');
+			}
+		});
+
+		this.__requests.push(req);
+
+		this.__delayed_till = now + this.__delay;
+
+		setTimeout(() => {
+			this.__startRequest();
+		}, this.__delay);
+	}
+
+	start() {
+		if (!this.__start_time) {
+			this.__start_time = (new Date).getTime();
+		}
+
+		this.__paused = false;
+		this.__startRequest();
+	}
+
+	pause() {
+		this.__paused = true;
+	}
+
+	cancel() {
+		for (let req of this.__requests) {
+			req.cancel();
+		}
+
+		this.__requests = [];
+	}
 }
 
 module.exports = Traverse;
