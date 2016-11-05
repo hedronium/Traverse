@@ -72,6 +72,18 @@ class Traverse extends EventEmitter {
 		return this;
 	}
 
+	timeout(entry, milisecs) {
+		let till = (new Date).getTime() + milisecs;
+
+		if (till > this.__scheduled_till) {
+			this.__scheduled_till = till;
+		}
+
+		setTimeout(() => {
+			this.push(entry);
+		}, milisecs);
+	}
+
 	state(obj) {
 		this.state = obj;
 
@@ -151,7 +163,7 @@ class Traverse extends EventEmitter {
 		this.__currently_running += 1;
 		this.__requests_this_minute += 1;
 
-		this.emit('request', options, entry);
+		this.emit('fetch', options, entry);
 
 		let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
 
@@ -166,8 +178,15 @@ class Traverse extends EventEmitter {
 
 		}, (error, options, entry) => { // Fail
 
-			this.emit('fail', error, entry, options);
 			this.__fails += 1;
+			this.emit('fail', error, entry, options);
+
+			let tag = entry.tag;
+			if (!tag) {
+				tag = 'default';
+			}
+
+			this.emit(`fail:${tag}`, error, entry, options);
 
 		}, (options, entry) => { // Finish
 
