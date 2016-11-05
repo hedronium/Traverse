@@ -24,11 +24,11 @@ class Traverse extends EventEmitter {
 		this.__requests = [];
 		this.__scheduled_till = 0;
 
-		this.__middleware = function (entry, state) {
+		this.__middleware = [function (entry, state) {
 			return {
 				url: entry.url
 			}
-		};
+		}];
 
 		this.__scraper = function (options, entry, success, failiure, finish) {
 			let req = Request(options).then(function (data) {
@@ -121,7 +121,7 @@ class Traverse extends EventEmitter {
 			throw new Error(`Middleware must be a function.`);
 		}
 
-		this.__middleware = func;
+		this.__middleware.push(func);
 
 		return this;
 	}
@@ -158,55 +158,65 @@ class Traverse extends EventEmitter {
 		}
 
 		let entry = this.__queue.dequeue();
-		let options = this.__middleware(entry, this.state);
+		let options = entry;
 
-		this.__currently_running += 1;
-		this.__requests_this_minute += 1;
+		for (let middle of this.__middleware) {
+			options = middle(options, this.state)
 
-		this.emit('fetch', options, entry);
-
-		let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
-
-			this.emit('scrape', usable, this, entry, options);
-
-			let tag = entry.tag;
-			if (!tag) {
-				tag = 'default';
+			if (!options) {
+				break;
 			}
+		}
 
-			this.emit(`scrape:${tag}`, usable, this, entry, options);
+		if (options) {
+			this.__currently_running += 1;
+			this.__requests_this_minute += 1;
 
-		}, (error, options, entry) => { // Fail
+			this.emit('fetch', options, entry);
 
-			this.__fails += 1;
-			this.emit('fail', error, entry, options);
+			let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
 
-			let tag = entry.tag;
-			if (!tag) {
-				tag = 'default';
-			}
+				this.emit('scrape', usable, this, entry, options);
 
-			this.emit(`fail:${tag}`, error, entry, options);
+				let tag = entry.tag;
+				if (!tag) {
+					tag = 'default';
+				}
 
-		}, (options, entry) => { // Finish
+				this.emit(`scrape:${tag}`, usable, this, entry, options);
 
-			this.__requests = this.__requests.filter((r) => {
-				return r !== req;
+			}, (error, options, entry) => { // Fail
+
+				this.__fails += 1;
+				this.emit('fail', error, entry, options);
+
+				let tag = entry.tag;
+				if (!tag) {
+					tag = 'default';
+				}
+
+				this.emit(`fail:${tag}`, error, entry, options);
+
+			}, (options, entry) => { // Finish
+
+				this.__requests = this.__requests.filter((r) => {
+					return r !== req;
+				});
+
+				this.__currently_running -= 1;
+				this.__finished += 1;
+				this.__startRequest();
+
+				if (this.__currently_running == 0 && this.__queue.length == 0 && (new Date).getTime() > this.__scheduled_till) {
+					this.emit('ended', {
+						finished: this.__finished,
+						failed: this.__fails
+					});
+				}
 			});
 
-			this.__currently_running -= 1;
-			this.__finished += 1;
-			this.__startRequest();
-
-			if (this.__currently_running == 0 && this.__queue.length == 0 && (new Date).getTime() > this.__scheduled_till) {
-				this.emit('ended', {
-					finished: this.__finished,
-					failed: this.__fails
-				});
-			}
-		});
-
-		this.__requests.push(req);
+			this.__requests.push(req);
+		}
 
 		this.__delayed_till = now + this.__delay;
 

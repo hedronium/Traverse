@@ -63,12 +63,12 @@ traverse.timeout({
 }, 6000);
 
 traverse.on('fail', (error, entry) => {
-	console.log(`Error while scraping ${entry.url}.`);
+	console.error(`Error while scraping ${entry.url}.`);
 });
 
 traverse.on('ended', (data) => {
 	console.log(`------------------------`);
-	console.log(`Scraped ${data.finished} pages.`);
+	console.info(`Scraped ${data.finished} pages.`);
 	console.log(`------------------------`);
 	console.log('Scraped Numbers: ');
 	console.log(...list.sort((a, b) => {
