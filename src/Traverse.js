@@ -1,7 +1,6 @@
 const EventEmitter = require('events');
 const PriorityQueue = require('js-priority-queue');
-const Request = require('request-promise');
-const Cheerio = require('cheerio');
+const Fetcher = require('./Fetcher.js');
 
 class Traverse extends EventEmitter {
 	constructor() {
@@ -30,18 +29,7 @@ class Traverse extends EventEmitter {
 			}
 		}];
 
-		this.__scraper = function (options, entry, success, failiure, finish) {
-			let req = Request(options).then(function (data) {
-				let usable = Cheerio.load(data);
-				success(usable, data, options, entry);
-			}).catch(function(error) {
-				failiure(error, options, entry);
-			}).finally(function () {
-				finish(options, entry);
-			});
-
-			return req;
-		};
+		this.__fetcher = Fetcher;
 
 		this.state = {};
 
@@ -174,7 +162,7 @@ class Traverse extends EventEmitter {
 
 			this.emit('fetch', options, entry);
 
-			let req = this.__scraper(options, entry, (usable, data, options, entry) => { // Success
+			let req = this.__fetcher(options, entry, (usable, data, options, entry) => { // Success
 
 				this.emit('scrape', usable, this, entry, options);
 
